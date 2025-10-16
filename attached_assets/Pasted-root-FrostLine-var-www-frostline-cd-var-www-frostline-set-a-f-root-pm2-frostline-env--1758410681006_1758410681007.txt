@@ -1,0 +1,70 @@
+root@FrostLine:/var/www/frostline# cd /var/www/frostline
+set -a; [ -f /root/pm2/frostline.env ] && . /root/pm2/frostline.env; set +a
+node dist/index.js 2>&1 | head -n 120
+[rsr-cron] Starting sync…
+🐘 Connected to PostgreSQL server (production)
+🏦 Authorize.Net configured for SANDBOX environment
+📋 Using API Login ID: sandbox_skip
+🔄 Automatic Zoho token refresh started - runs every 50 minutes
+🔧 ZohoService constructor initialized with: {
+  hasAccessToken: false,
+  accessTokenLength: undefined,
+  accessTokenPreview: 'undefined...',
+  hasRefreshToken: false,
+  clientId: '1000.8OVSJ...'
+}
+🔄 Automatic Zoho token refresh started - will refresh every 50 minutes
+🔑 SendGrid API key configured: SG.k1aiS0k...
+🔧 ZohoService constructor initialized with: {
+  hasAccessToken: false,
+  accessTokenLength: undefined,
+  accessTokenPreview: 'undefined...',
+  hasRefreshToken: false,
+  clientId: '1000.8OVSJ...'
+}
+🔄 Automatic Zoho token refresh started - will refresh every 50 minutes
+🔧 ZohoService constructor initialized with: {
+  hasAccessToken: false,
+  accessTokenLength: undefined,
+  accessTokenPreview: 'undefined...',
+  hasRefreshToken: false,
+  clientId: '...'
+}
+🔄 Automatic Zoho token refresh started - will refresh every 50 minutes
+🔧 ZohoService constructor initialized with: {
+  hasAccessToken: false,
+  accessTokenLength: undefined,
+  accessTokenPreview: 'undefined...',
+  hasRefreshToken: false,
+  clientId: 'undefined...'
+}
+🔄 Automatic Zoho token refresh started - will refresh every 50 minutes
+🔧 ZohoService constructor initialized with: {
+  hasAccessToken: false,
+  accessTokenLength: undefined,
+  accessTokenPreview: 'undefined...',
+  hasRefreshToken: false,
+  clientId: 'undefined...'
+}
+🔄 Automatic Zoho token refresh started - will refresh every 50 minutes
+⚠️  SAML configuration incomplete. Missing: SAML_IDP_SSO_URL, SAML_IDP_CERT_PEM
+Warning: connect.session() MemoryStore is not
+designed for a production environment, as it will leak
+memory, and will not scale past a single process.
+✅ Database connection verified
+🔄 Token expired, refreshing automatically...
+❌ Token refresh failed - no access token received
+⚠️ No valid Zoho tokens - will refresh when available
+file:///var/www/frostline/dist/index.js:11
+  throw Error('Dynamic require of "' + x + '" is not supported');
+        ^
+
+Error: Dynamic require of "fs" is not supported
+    at file:///var/www/frostline/dist/index.js:11:9
+    at server/lib/storage.js (file:///var/www/frostline/dist/index.js:16622:12)
+    at __init (file:///var/www/frostline/dist/index.js:14:56)
+    at server/routes/orderSnapshot.ts (file:///var/www/frostline/dist/index.js:16649:5)
+    at __init (file:///var/www/frostline/dist/index.js:14:56)
+    at file:///var/www/frostline/dist/index.js:32480:80
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///var/www/frostline/dist/index.js:32480:44

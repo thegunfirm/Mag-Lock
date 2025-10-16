@@ -1,0 +1,185 @@
+SUBSCRIPTION SIGNUP FLOW — IMPLEMENTATION SPEC (NO CODE)
+
+Core Truths
+
+Never auto-assign Bronze on verification.
+
+Activation requires both: Email Verified ✅ and Payment Successful ✅ for the chosen tier.
+
+If a tier is chosen at signup, always return the user to that tier’s payment screen immediately after verification.
+
+State Model (store these flags/fields)
+
+account_status: one of
+
+pending_verification (created, not verified)
+
+verified_pending_payment (email verified, payment not completed)
+
+active (email verified and payment completed)
+
+selected_tier: one of bronze | gold | platinum | null
+
+email_verified: boolean (false → true after verification link click)
+
+payment_status: one of none | authorized | captured | failed | canceled
+
+subscription_tier: one of bronze | gold | platinum | null (this reflects the active tier; remains null until payment captured)
+
+trial_flag (optional): boolean (only used if product has trials; default false here)
+
+Views/Routes (examples, adjust names as needed)
+
+/signup — collects email, password/OAuth, and selected_tier (optional but encouraged).
+
+/verify — email link lands here; performs verification then redirects (see Redirect Rules).
+
+/plans — plan selection; sets selected_tier if not set or user wants to change before paying.
+
+/pay — payment entry for selected_tier (requires selected_tier to be non-null).
+
+/account — shows current account_status, subscription_tier, and CTA if payment outstanding.
+
+/access/* — protected content (requires account_status=active).
+
+Lifecycle & Transitions
+
+Signup → pending_verification
+
+On /signup:
+
+Create user with:
+
+account_status = pending_verification
+
+email_verified = false
+
+selected_tier = user choice (bronze|gold|platinum) OR null
+
+subscription_tier = null
+
+payment_status = none
+
+Send verification email with a one-time link → /verify?token=...
+
+Verify Link Click
+
+On /verify:
+
+Validate token; set email_verified = true
+
+If payment_status=captured (rare race): set account_status = active and subscription_tier = selected_tier; redirect /account
+
+Else: set account_status = verified_pending_payment
+
+Redirect Rules after verification (see below)
+
+Redirect Rules (critical)
+
+If email_verified=true and account_status=verified_pending_payment:
+
+If selected_tier is set → redirect immediately to /pay for that tier
+
+If selected_tier is null → redirect to /plans to choose a tier, then to /pay
+
+Never assign Bronze automatically here.
+
+Payment Flow
+
+On /pay:
+
+Require email_verified=true
+
+Require selected_tier present
+
+Attempt payment:
+
+On success: payment_status=captured, subscription_tier=selected_tier, account_status=active
+
+On failure: payment_status=failed, keep subscription_tier=null, keep account_status=verified_pending_payment, show retry CTA
+
+Access Control
+
+Any gated route under /access/* must check:
+
+account_status===active → allow
+
+else → redirect to:
+
+if email_verified=false → verification reminder screen
+
+if email_verified=true and subscription_tier=null → /pay (or /plans if selected_tier=null)
+
+Bronze Handling
+
+Bronze must be explicitly selected and confirmed.
+
+If Bronze is free: still require an explicit confirmation on /plans and set subscription_tier=bronze, account_status=active (no payment). Do not default to Bronze on verification.
+
+If Bronze is paid: treat like other paid tiers via /pay.
+
+Edge Cases
+
+User changes mind post-verification:
+
+If on /pay and changes tier → update selected_tier, keep account_status=verified_pending_payment, proceed with new tier.
+
+Payment authorized but not captured (if your PSP uses two-step):
+
+Do not set active until capture succeeds.
+
+Verification repeated:
+
+If already verified and subscription_tier=null → route to /pay (or /plans if no selected_tier).
+
+If already active → route /account.
+
+Reminders & Timeouts
+
+If verified_pending_payment for > X hours/days:
+
+Send reminders with direct link to /pay (preserve selected_tier).
+
+If never verifies email:
+
+Keep pending_verification; optionally purge after Y days.
+
+Explicit Do-Not Rules
+
+Do not:
+
+Auto-assign Bronze after email verification.
+
+Grant any access under /access/* while subscription_tier=null.
+
+Lose selected_tier between /signup and /verify → must persist.
+
+Bury the user in account settings—always deep-link straight to /pay.
+
+Post-Conditions (what “done” looks like)
+
+After verify link click with a preselected tier, user lands on /pay every time (not /account, not /plans, unless selected_tier is missing).
+
+A user who chose Gold/Platinum at signup becomes active in that tier only after payment capture.
+
+A verified user with no payment remains verified_pending_payment and is always funneled toward /pay.
+
+Acceptance Tests (manual QA, no code)
+
+Gold path: Signup with gold → verify link → lands on /pay → pay succeeds → account_status=active, subscription_tier=gold, access allowed.
+
+Bronze (free): Signup with Bronze (free config) → verify link → redirected to /plans confirm screen (or /pay if paid Bronze) → after confirm, active, access allowed.
+
+No tier at signup: Signup (no tier) → verify link → /plans → choose Platinum → /pay → pay → active/platinum.
+
+Failed payment: Verify ok → /pay → fail card → remains verified_pending_payment → retry possible; /access/* blocked.
+
+No auto Bronze: Verify with no payment → assert subscription_tier=null, account_status=verified_pending_payment; no access; CTA points to /pay.
+
+Telemetry (optional but recommended)
+
+Emit events: signup_created, email_verified, redirect_to_pay, payment_succeeded, payment_failed, subscription_activated.
+
+Log state transitions with user id and timestamps for audit.
+
+Implement exactly as above. The key fix Replit must make: after email verification, redirect directly to /pay for the user’s selected_tier, keep account_status=verified_pending_payment until payment capture, and never auto-assign Bronze.

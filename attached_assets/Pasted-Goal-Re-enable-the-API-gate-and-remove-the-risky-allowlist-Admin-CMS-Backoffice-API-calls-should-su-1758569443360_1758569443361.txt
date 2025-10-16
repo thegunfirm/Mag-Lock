@@ -1,0 +1,114 @@
+Goal
+Re-enable the API gate and remove the risky allowlist. Admin/CMS/Backoffice API calls should succeed when the request passes through Cloudflare Access, and be rejected otherwise. Public homepage endpoints remain public. Guests still get 401 on /api/me.
+
+Non-Goals (do NOT change)
+
+Do not change pricing, Algolia settings, or product data.
+
+Do not weaken Cloudflare Access apps already created for /admin*, /cms*, /backoffice*, /api/admin*, /api/cms*, /api/backoffice*.
+
+Do not add domain-wide public allows for /api/*.
+
+1) Environment flags (Replit Secrets)
+
+Set ENFORCE_API_GATE = true
+
+Add (or confirm) placeholders for Cloudflare Access validation:
+
+CF_ACCESS_TEAM_DOMAIN = <your-team>.cloudflareaccess.com
+
+CF_ACCESS_AUD = <your-app-audience-tag>
+(Leave values as placeholders if unknown; implementation must support both CF Access JWT or X-Service-Key so staff UI works now and s2s calls continue to work.)
+
+Ensure SERVICE_KEY is present (unchanged) for server-to-server.
+
+2) Remove unsafe allowlist opens
+
+File: server/middleware/api-gate.ts
+
+Delete any rules that broadly allow these without auth:
+
+/api/admin*, /api/cms*, /api/backoffice*, /api/order*, /api/rsr*, /api/sync*, /api/ffl*, /api/tier*, /api/delivery*, /api/subscription*, /api/role*, /api/branding*, /api/fap*, /api/zoho*, /api/support*, /api/emails*, /api/algolia*, /api/pricing*, /api/department*, /api/filter*, /api/image*, /api/ribbon*.
+
+Restore the original gate behavior: protected endpoints require auth; only a small explicit public list is allowed.
+
+3) Public endpoints (allow without auth)
+
+File: server/middleware/api-gate.ts — update/confirm PUBLIC_ENDPOINTS to be exactly:
+
+GET /api/health
+
+POST /api/webhooks/anet
+
+POST /api/webhooks/rsr
+
+GET /api/categories
+
+GET /api/featured
+
+GET /api/products/featured
+
+GET /api/carousel/slides
+
+GET /api/category-ribbons/active
+
+GET /api/products
+
+All OPTIONS requests (CORS preflight)
+
+Everything else is protected by the gate. /api/me must not be on the public list (401 for guests is correct).
+
+4) Authorization methods (either is acceptable)
+
+File: server/middleware/api-gate.ts
+Implement gate to accept either of the following for protected endpoints:
+
+A. Cloudflare Access JWT (preferred in browser):
+
+If header CF-Access-Jwt-Assertion is present, validate it against CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD (RS256 using the team’s certs at https://<team>.cloudflareaccess.com/cdn-cgi/access/certs).
+
+If valid, allow. (No role check here—the role/path was already enforced by Cloudflare apps.)
+
+B. Service Key (for server-to-server):
+
+If header X-Service-Key matches SERVICE_KEY, allow.
+
+Otherwise, reject (401) unless the endpoint is in the Public list.
+
+Note: Keep legacy checks (e.g., /api/webhooks/* public as above). Do not introduce any new public endpoints.
+
+5) Remove per-route inline bypasses
+
+Search the codebase for any inline req.isAuthenticated(), requireRole, or ad-hoc bypass added in the “Remove security checks…” commit.
+
+Revert those to their original state so that the gate is the single source of truth for API access (plus any existing role logic that predates the unsafe change).
+
+6) Acceptance tests (run after restart)
+
+From a public session (not logged into CF Access), a direct call to a protected endpoint (e.g., GET /api/cms/orders) should redirect to CF Access or return 403 from Cloudflare—never 200 from origin.
+
+From a staff browser that passed CF Access, the Admin/CMS UI should load and its XHR calls to /api/cms* and /api/backoffice* should succeed (no 401/403).
+
+GET /api/me returns 401 for guests, 200 with user data when accessed via CF Access session.
+
+Public homepage calls (/api/featured, /api/products, etc.) return 200 without CF Access.
+
+Server-to-server calls using X-Service-Key still work on protected endpoints.
+
+7) Observability
+
+Log denied decisions from the gate with method + path (no secrets).
+
+Do not log JWT contents.
+
+Keep existing logs for 24–72h to confirm stability.
+
+Deliverables
+
+ENFORCE_API_GATE=true in env.
+
+server/middleware/api-gate.ts updated per items (2)–(4).
+
+All unsafe allowlist rules removed.
+
+Acceptance tests pass.

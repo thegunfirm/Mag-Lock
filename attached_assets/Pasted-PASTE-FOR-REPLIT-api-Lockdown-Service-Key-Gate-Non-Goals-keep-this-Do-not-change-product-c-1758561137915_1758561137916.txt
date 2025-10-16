@@ -1,0 +1,152 @@
+PASTE FOR REPLIT — /api/* Lockdown (Service-Key Gate)
+Non-Goals (keep this)
+
+Do not change product/catalog logic, pricing, Algolia, database schemas, or UI.
+
+Do not add new auth systems (JWT/OAuth) in this task.
+
+Do not modify external provider configs; only accept their callbacks.
+
+Environment Variables (project level)
+
+Create or confirm:
+
+SERVICE_KEY_HEADER = X-Service-Key
+
+SERVICE_KEY = <generate a long random secret>
+
+ENFORCE_API_GATE = true
+
+Rules:
+
+If ENFORCE_API_GATE=false, bypass enforcement but log that the gate is disabled.
+
+Never log the SERVICE_KEY value.
+
+Public Allowlist (no service key required)
+
+Allow these exactly:
+
+GET /api/health — liveness probe returning lightweight JSON.
+
+POST /api/webhooks/anet — Authorize.net callbacks.
+
+POST /api/webhooks/rsr — RSR callbacks (if used).
+
+Any route under /api/webhooks/* that external providers must reach.
+
+OPTIONS * — CORS preflight.
+
+Keep the allowlist minimal and explicit. Everything else under /api/* is protected.
+
+Middleware Requirements (global before all /api/* handlers)
+
+Skip if:
+
+req.method === 'OPTIONS', or
+
+path matches the allowlist above.
+
+Enforce (only when ENFORCE_API_GATE=true):
+
+Read header name from SERVICE_KEY_HEADER (default X-Service-Key).
+
+Validate req.headers[headerName] === SERVICE_KEY.
+
+If missing/invalid → respond 401 with JSON:
+
+{"error":"unauthorized","message":"Valid service key required","code":"API_GATE_MISSING_OR_INVALID"}
+
+
+Disabled mode (ENFORCE_API_GATE=false): do not block; log that enforcement is disabled.
+
+Logging on 401: method, path, anonymized IP, reason (missing|invalid). Do not log keys.
+
+Order: CORS → API gate → body parsers/routers → error handler.
+
+Health Endpoint Contract (public)
+
+GET /api/health → 200 JSON:
+
+{"status":"ok","uptimeSec": <number>,"version":"<string>","time":"<ISO8601>"}
+
+
+Must be fast and never require a key.
+
+Webhook Contracts (public)
+
+POST /api/webhooks/anet and any other /api/webhooks/*: accept provider callbacks. Keep any signature/shared-secret verification you already use. Do not require the service key here (providers won’t send it).
+
+If a webhook isn’t implemented yet, create a stub that returns 200 and a TODO comment; it must remain allowlisted.
+
+Deliverables
+
+New global API gate middleware applied to all /api/*.
+
+Allowlist implemented exactly as listed.
+
+.env variables added and read at runtime.
+
+Tests (unit or integration) covering:
+
+GET /api/health without key → 200.
+
+A protected path (pick any existing /api/...):
+
+No header → 401.
+
+Wrong key → 401.
+
+Correct key → success status (existing behavior).
+
+OPTIONS on a protected path → succeeds (204/200 per current CORS).
+
+Manual verification notes (below) included in PR/commit.
+
+Manual Verification (example curls; replace host and <KEY>)
+
+Health (no key):
+
+curl -i https://<host>/api/health
+
+
+Expect 200 JSON.
+
+Protected (no key):
+
+curl -i https://<host>/api/secure-example
+
+
+Expect 401.
+
+Protected (wrong key):
+
+curl -i -H "X-Service-Key: WRONG" https://<host>/api/secure-example
+
+
+Expect 401.
+
+Protected (correct key):
+
+curl -i -H "X-Service-Key: <KEY>" https://<host>/api/secure-example
+
+
+Expect success (current behavior).
+
+Preflight:
+
+curl -i -X OPTIONS https://<host>/api/secure-example
+
+Acceptance Criteria
+
+All /api/* routes are 401 unless allowlisted or sent with valid X-Service-Key.
+
+Health and webhooks remain publicly reachable.
+
+OPTIONS always succeeds.
+
+No secrets logged.
+
+ENFORCE_API_GATE=false disables blocking but logs bypass.
+
+Tests cover allow/deny cases.

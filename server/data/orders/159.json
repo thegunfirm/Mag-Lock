@@ -1,0 +1,82 @@
+{
+  "orderId": "159",
+  "txnId": "120071404061",
+  "status": "processing",
+  "customer": {
+    "email": "ripizona@gmail.com",
+    "name": "Rip Ripple",
+    "firstName": "Rip",
+    "lastName": "Ripple",
+    "address": "123 Test St",
+    "city": "Test City",
+    "state": "AZ",
+    "zip": "12345"
+  },
+  "items": [
+    {
+      "upc": "810188100542",
+      "mpn": "UX4350204FRN",
+      "sku": "GLUX4350204FRNBNTSCT",
+      "name": "GLOCK 43X 9MM 10RD BLACK ROBBIN BLUE",
+      "qty": 1,
+      "price": 820,
+      "imageUrl": "/images/810188100542.jpg"
+    },
+    {
+      "upc": "708279006111",
+      "mpn": "PM017",
+      "sku": "PM017",
+      "name": "PROMAG AR-15 5RD MAG LOADER",
+      "qty": 1,
+      "price": 15.99,
+      "imageUrl": "/images/708279006111.jpg"
+    },
+    {
+      "upc": "090255712834",
+      "mpn": "FR1015",
+      "sku": "HFR1015",
+      "name": "FRONTIER 223REM 55GR FMJ 150/1200",
+      "qty": 1,
+      "price": 116.95,
+      "imageUrl": "/images/090255712834.jpg"
+    },
+    {
+      "upc": "816341024632",
+      "mpn": "FF556BCGCNITRIDE-TiN",
+      "sku": "FXFF556BCGCNITRIDE-TIN",
+      "name": "FAXON 5.56 M16 BCG TIN",
+      "qty": 1,
+      "price": 199,
+      "imageUrl": "/images/816341024632.jpg"
+    }
+  ],
+  "shippingOutcomes": [
+    "IH>Customer"
+  ],
+  "minted": {
+    "main": "100038-0",
+    "parts": []
+  },
+  "allocations": null,
+  "fflId": null,
+  "fulfillmentGroups": [
+    {
+      "fulfillmentType": "direct",
+      "fflId": null
+    },
+    {
+      "fulfillmentType": "ffl_dropship",
+      "fflId": null
+    },
+    {
+      "fulfillmentType": "direct",
+      "fflId": null
+    },
+    {
+      "fulfillmentType": "direct",
+      "fflId": null
+    }
+  ],
+  "createdAt": "2025-09-21T23:54:21.511Z",
+  "updatedAt": "2025-09-21T23:54:21.511Z"
+}

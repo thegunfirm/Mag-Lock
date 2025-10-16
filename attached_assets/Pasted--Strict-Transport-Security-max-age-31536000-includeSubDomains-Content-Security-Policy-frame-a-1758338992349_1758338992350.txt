@@ -1,0 +1,45 @@
+< Strict-Transport-Security: max-age=31536000; includeSubDomains
+< Content-Security-Policy: frame-ancestors 'none'
+< Cache-Control: no-cache
+< X-Content-Type-Options: no-sniff
+< Referrer-Policy: strict-origin-when-cross-origin
+< 
+* Connection #0 to host api.sendgrid.com left intact
+{"errors":[{"message":"The from address does not match a verified Sender Identity. Mail cannot be sent until this error is resolved. Visit https://sendgrid.com/docs/for-developers/sending-email/sender-identity/ to see the Sender Identity requirements","field":"from","help":null}]}~~/workspace$ curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Authorization: Bearer SENDGRID_API_KEY_REDACTED" \
+  -H "Content-Type: application/json" \
+  -X POST https://api.sendgrid.com/v3/mail/send \
+  -d '{
+    "personalizations":[{"to":[{"email":"VERIFIED_FROM_EMAIL"}]}],
+    "from":{"email":"no-reply@m.thegunfirm.com"},
+    "subject":"SG key probe",
+    "content":[{"type":"text/plain","value":"probe"}]
+  }'
+400
+~/workspace$ curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Authorization: SENDGRID_API_KEY_REDACTED" \
+  -H "Content-Type: application/json" \
+  -X POST https://api.sendgrid.com/v3/mail/send \
+  -d '{
+    "personalizations":[{"to":[{"email":"ripizona@gmail.com"}]}],
+    "from":{"email":"no-reply@m.thegunfirm.com","name":"No-Reply The Gun Firm"},
+    "reply_to":{"email":"support@thegunfirm.com"},
+    "subject":"SG key probe",
+    "content":[{"type":"text/plain","value":"probe"}]
+  }'
+401
+~/workspace$ ^C
+~/workspace$ curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Authorization: Bearer SENDGRID_API_KEY_REDACTED" \
+  -H "Content-Type: application/json" \
+  -X POST https://api.sendgrid.com/v3/mail/send \
+  -d '{
+    "personalizations":[{"to":[{"email":"ripizona@gmail.com"}]}],
+    "from":{"email":"no-reply@m.thegunfirm.com","name":"No-Reply The Gun Firm"},
+    "reply_to":{"email":"support@thegunfirm.com"},
+    "subject":"SG key probe",
+    "content":[{"type":"text/plain","value":"probe"}]
+  }'
+202
+~/workspace$ ^C
+~/workspace$ 

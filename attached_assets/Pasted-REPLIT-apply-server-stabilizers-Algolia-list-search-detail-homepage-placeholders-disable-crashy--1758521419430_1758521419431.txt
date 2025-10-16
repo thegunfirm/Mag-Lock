@@ -1,0 +1,177 @@
+REPLIT: apply server stabilizers (Algolia list/search/detail; homepage placeholders; disable crashy routes & RSR boot)
+
+File: server/index.ts
+
+Insert this RIGHT AFTER const app = express(); (top-of-stack detail proxy so /api/products/:id returns ONE object from Algolia, and skips reserved slugs like featured, search, category, etc.):
+
+// === TEMP: proxy /api/products/:id to Algolia (no DB) ===
+app.use(async (req: any, res: any, next: any) => {
+  try {
+    if (req.method !== 'GET') return next();
+
+    const basePath = '/api/products/';
+    if (!req.path.startsWith(basePath)) return next();
+
+    const key = decodeURIComponent(req.path.slice(basePath.length));
+    const reserved = new Set(['featured', 'search', 'category', 'by-object', 'by-id']);
+    if (!key || key.includes('/') || reserved.has(key)) return next(); // let other routes handle
+
+    const base = `https://${process.env.ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/products`;
+    const headers: Record<string, string> = {
+      'X-Algolia-API-Key': process.env.ALGOLIA_API_KEY || '',
+      'X-Algolia-Application-Id': process.env.ALGOLIA_APP_ID || '',
+      'Accept': 'application/json'
+    };
+
+    // Non-numeric: treat as Algolia objectID / stockNumber
+    if (!/^[0-9]+$/.test(key)) {
+      const r = await fetch(`${base}/${encodeURIComponent(key)}`, { headers });
+      if (r.ok) return res.json(await r.json());
+      // fallback: query by text
+      const rq = await fetch(`${base}/query`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params: `query=${encodeURIComponent(key)}&hitsPerPage=1` })
+      });
+      const data = await rq.json().catch(() => ({}));
+      const hit = Array.isArray((data as any).hits) ? (data as any).hits[0] : null;
+      return hit ? res.json(hit) : res.status(404).json({ message: 'Not found' });
+    }
+
+    // Numeric: try numericFilters on id, fallback to text
+    const rq = await fetch(`${base}/query`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ params: `numericFilters=id=${key}&hitsPerPage=1` })
+    });
+    let data = await rq.json().catch(() => ({}));
+    let hit = Array.isArray((data as any).hits) ? (data as any).hits[0] : null;
+
+    if (!hit) {
+      const rq2 = await fetch(`${base}/query`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params: `query=${encodeURIComponent(key)}&hitsPerPage=1` })
+      });
+      data = await rq2.json().catch(() => ({}));
+      hit = Array.isArray((data as any).hits) ? (data as any).hits[0] : null;
+    }
+
+    return hit ? res.json(hit) : res.status(404).json({ message: 'Not found' });
+  } catch {
+    return res.status(500).json({ message: 'Algolia detail failed' });
+  }
+});
+
+
+Insert these just ABOVE const server = await registerRoutes(app); (Algolia list/search; homepage placeholders; featured; optional category):
+
+// === TEMP: Algolia-only products list (no DB enrich) ===
+app.get('/api/products', async (req: any, res: any) => {
+  try {
+    const q = typeof (req.query as any).q === 'string' ? (req.query as any).q : '';
+    const limit = Number.parseInt(String((req.query as any).limit ?? '20'), 10) || 20;
+    const r = await fetch(
+      `https://${process.env.ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/products/query`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Algolia-API-Key': process.env.ALGOLIA_API_KEY || '',
+          'X-Algolia-Application-Id': process.env.ALGOLIA_APP_ID || '',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ params: `query=${encodeURIComponent(q)}&hitsPerPage=${limit}` }),
+      }
+    );
+    const data = await r.json().catch(() => ({}));
+    return Array.isArray((data as any).hits) ? res.json((data as any).hits) : res.json([]);
+  } catch { return res.json([]); }
+});
+
+// === TEMP: Algolia-only search ===
+app.get('/api/products/search', async (req: any, res: any) => {
+  try {
+    const q = typeof (req.query as any).q === 'string' ? (req.query as any).q : '';
+    const limit = Number.parseInt(String((req.query as any).limit ?? '20'), 10) || 20;
+    const r = await fetch(
+      `https://${process.env.ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/products/query`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Algolia-API-Key': process.env.ALGOLIA_API_KEY || '',
+          'X-Algolia-Application-Id': process.env.ALGOLIA_APP_ID || '',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ params: `query=${encodeURIComponent(q)}&hitsPerPage=${limit}` }),
+      }
+    );
+    const data = await r.json().catch(() => ({}));
+    return Array.isArray((data as any).hits) ? res.json((data as any).hits) : res.json([]);
+  } catch { return res.json([]); }
+});
+
+// === TEMP: homepage placeholders (never crash UI) ===
+app.get('/api/carousel/slides', (_req, res) => res.json([]));
+app.get('/api/category-ribbons/active', (_req, res) => res.json([]));
+
+// === TEMP: featured products from Algolia ===
+app.get('/api/products/featured', async (_req, res) => {
+  try {
+    const base = `https://${process.env.ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/products`;
+    const r = await fetch(`${base}/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Algolia-API-Key': process.env.ALGOLIA_API_KEY || '',
+        'X-Algolia-Application-Id': process.env.ALGOLIA_APP_ID || '',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ params: 'query=&hitsPerPage=8' })
+    });
+    const data = await r.json().catch(() => ({}));
+    return Array.isArray((data as any).hits) ? res.json((data as any).hits) : res.json([]);
+  } catch { return res.json([]); }
+});
+
+// === OPTIONAL: category via Algolia facets (adjust field if needed) ===
+app.get('/api/products/category/:category', async (req: any, res: any) => {
+  try {
+    const cat = String(req.params.category || '');
+    const base = `https://${process.env.ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/products`;
+    const r = await fetch(`${base}/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Algolia-API-Key': process.env.ALGOLIA_API_KEY || '',
+        'X-Algolia-Application-Id': process.env.ALGOLIA_APP_ID || '',
+        'Accept': 'application/json',
+      },
+      // If your index uses another field (e.g., "categoryName"), change here:
+      body: JSON.stringify({ params: `query=&facetFilters=category:${encodeURIComponent(cat)}&hitsPerPage=24` })
+    });
+    const data = await r.json().catch(() => ({}));
+    return Array.isArray((data as any).hits) ? res.json((data as any).hits) : res.json([]);
+  } catch { return res.json([]); }
+});
+
+
+In the same server/index.ts, comment out crashy CommonJS routes (both import AND app.use). Look for these lines and comment them exactly:
+
+// const { default: orderSnapshotRouter } = await import('./routes/orderSnapshot.js');
+// app.use(orderSnapshotRouter);
+
+// const { default: orderSummaryByIdRouter } = await import('./routes/orderSummaryById.cjs');
+// app.use(orderSummaryByIdRouter);
+
+// const imageVerifyRouter = await import('./routes/imageVerify.cjs');
+// app.use(imageVerifyRouter.default);
+
+
+File: server/routes.ts, server/routes/admin-rsr.ts, server/services/inventory-sync.ts
+4) Disable RSR cron at boot (prevent DB/schema crashes)
+Comment every startScheduler() call you find, e.g.:
+
+// await rsrSchedulerService.startScheduler();
+// this.startScheduler();

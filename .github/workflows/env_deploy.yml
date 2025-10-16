@@ -1,0 +1,81 @@
+name: Deploy FrostLine env
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-frostline-env
+  cancel-in-progress: true
+
+jobs:
+  push-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (optional)
+        uses: actions/checkout@v4
+
+      - name: Load SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Push env and restart PM2
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'bash -s' <<'SH'
+          set -euo pipefail
+
+          # --- Export runtime env (from GH secrets) and restart ---
+          export PORT=5000
+          export NODE_ENV=production
+          export DATABASE_URL='${{ secrets.DATABASE_URL }}'
+
+          # RSR FTP (explicit FTPS on 2222) — dealer login ONLY
+          export RSR_FTP_HOST='ftps.rsrgroup.com'
+          export RSR_FTP_PORT='2222'
+          export RSR_FTPS='1'
+          export RSR_USERNAME='${{ secrets.RSR_USERNAME }}'
+          export RSR_PASSWORD='${{ secrets.RSR_PASSWORD }}'
+
+          # RSR "Standard" feed/API — distinct creds (no fallback from FTP)
+          export RSR_STANDARD_USERNAME='${{ secrets.RSR_STANDARD_USERNAME }}'
+          export RSR_STANDARD_PASSWORD='${{ secrets.RSR_STANDARD_PASSWORD }}'
+
+          # Payments / misc
+          export AUTHORIZE_NET_API_LOGIN_ID='${{ secrets.AUTHORIZE_NET_API_LOGIN_ID }}'
+          export AUTHORIZE_NET_TRANSACTION_KEY='${{ secrets.AUTHORIZE_NET_TRANSACTION_KEY }}'
+          export AUTHORIZE_NET_ENVIRONMENT="${AUTHORIZE_NET_ENVIRONMENT:-${{ secrets.AUTHORIZE_NET_ENVIRONMENT }}}"
+          export SENDGRID_API_KEY='${{ secrets.SENDGRID_API_KEY }}'
+          export ALGOLIA_APP_ID='${{ secrets.ALGOLIA_APP_ID }}'
+          export ALGOLIA_ADMIN_API_KEY='${{ secrets.ALGOLIA_ADMIN_API_KEY }}'
+
+          cd /var/www/frostline
+
+          # Keep DB role in sync with DATABASE_URL password (safe if already set)
+          if command -v psql >/dev/null 2>&1; then
+            PASS="$(printf '%s\n' "$DATABASE_URL" | sed -n 's~^postgresql://[^:]*:\([^@]*\)@.*$~\1~p')"
+            [ -n "$PASS" ] && sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER ROLE frostline WITH LOGIN PASSWORD '${PASS}';" || true
+          fi
+
+          pm2 restart frostline --update-env --cwd /var/www/frostline || \
+            pm2 start dist/index.js --name frostline --cwd /var/www/frostline --update-env
+          pm2 save
+
+          # Smoke checks (no secrets leaked)
+          ss -ltn '( sport = :5000 )' || true
+          curl -sI http://127.0.0.1:5000/ | head -1 || true
+          pm2 logs frostline --lines 120 --nostream | grep -E "Connecting FTPS|> USER|< 331|< 230|< 530" || true
+
+          # Direct FTPS auth probe (should show 230, not 530)
+          curl -s -v --ftp-ssl --ssl-reqd --disable-epsv \
+            --user "$RSR_USERNAME:$RSR_PASSWORD" "ftp://$RSR_FTP_HOST:$RSR_FTP_PORT/" 2>&1 \
+            | grep -E 'Connected to|> AUTH|< 234|> USER|< 331|< 230|< 530' || true
+          SH

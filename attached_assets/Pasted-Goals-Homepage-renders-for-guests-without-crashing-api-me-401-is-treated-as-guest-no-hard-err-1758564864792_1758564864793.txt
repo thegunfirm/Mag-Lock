@@ -1,0 +1,145 @@
+Goals
+
+Homepage renders for guests without crashing.
+
+/api/me 401 is treated as “guest” (no hard error).
+
+All list renders are safe (no .map on non-arrays).
+
+No unnecessary Algolia calls remain.
+
+Non-Goals
+
+Do not re-enable Algolia.
+
+Do not change product indexing or Algolia settings.
+
+Do not alter auth flows for staff/admin.
+
+Inputs & Assumptions
+
+Public homepage must work for unauthenticated users.
+
+We secured APIs; some endpoints now require auth headers.
+
+Existing UI components expect arrays (and are crashing on 401/shape changes).
+
+Tasks (do all)
+
+A) /api/me handling
+
+Update the homepage data loader (or client hook) that calls /api/me:
+
+If response is 401, do not throw/propagate an error. Return { isLoggedIn:false, user:null, roles:[] }.
+
+If 200, return { isLoggedIn:true, user, roles }.
+
+Ensure any query/fetch library (SWR/React Query):
+
+Sets retry: false for /api/me on 401.
+
+Treats 401 as a resolved “guest” state, not as a rejected promise.
+
+Confirm no redirect is triggered on 401 for public pages. Redirects should be limited to protected routes only.
+
+B) Normalize list data (fix .map crash)
+
+Identify every homepage component that calls .map on API results (the stack shows one inside Kd).
+
+For each list input, normalize to an array prior to render:
+
+If the source is t, resolve to one of t, t.items, or t.results. If none are arrays, use [].
+
+Log once at warn level when non-array shapes are received to aid future cleanup.
+
+Ensure all sections (featured products, ribbons, promos, categories) render from a normalized array and handle [] by showing skeletons/empty states.
+
+C) Remove/replace Algolia calls on homepage
+
+Delete any homepage calls to Algolia (search/init, facet calls, or instantsearch widgets).
+
+Replace with internal sources the homepage should already have:
+
+Categories/ribbons: static config or /api/categories.
+
+Featured/Trending: /api/featured (or the current internal endpoint).
+
+New arrivals/Best sellers: existing internal endpoints; if none, stub with empty arrays (homepage must still render).
+
+Ensure no Algolia client is imported/initialized anywhere on the homepage path.
+
+D) Public vs secured endpoint split
+
+Mark which endpoints must be public-readable for homepage:
+
+GET /api/categories (public)
+
+GET /api/featured (public)
+
+Any other read-only homepage data (public)
+
+For any endpoint that must stay secured, gate the UI from calling it when isLoggedIn=false.
+
+Verify CORS/headers: public endpoints should not require service keys or auth tokens; secured endpoints must.
+
+E) Error boundaries & skeletons
+
+Wrap homepage sections with a lightweight error boundary so a single failed section doesn’t take down the page.
+
+Provide loading skeletons/placeholders for all lists.
+
+Empty state: show “No items” (or hide the section) when arrays are empty.
+
+F) Query/fetch settings
+
+Set sensible cache times for homepage lists (e.g., 5–15 minutes) and disable retries on 401.
+
+On non-401 failures (>=500), show the section’s error state; do not crash the page.
+
+G) Telemetry & logs
+
+Add one-time console.warn when a list input is not an array and show the received keys.
+
+Add console.info on 401 from /api/me indicating “guest mode.”
+
+Test Plan (manual)
+
+Guest render (no login):
+
+Load /. Expect no crashes.
+
+Network: /api/me → 401. App continues in guest mode.
+
+Sections render with data or skeletons; no .map errors in console.
+
+No Algolia network calls.
+
+Logged in:
+
+Login and reload /.
+
+/api/me → 200 with user. Personalized bits render (if any).
+
+No .map errors; lists render.
+
+Failure simulation:
+
+Force one homepage data endpoint to return an object instead of array.
+
+Page should still render; section shows skeleton/empty and logs a single warning.
+
+Security:
+
+Confirm public homepage endpoints work without auth.
+
+Confirm secured endpoints are not called in guest mode.
+
+Acceptance Criteria
+
+No TypeError: .map is not a function on homepage.
+
+/api/me 401 handled as guest mode (no redirect/no crash).
+
+Zero Algolia calls from homepage.
+
+Homepage fully renders for both guests and logged-in users with skeletons/empty states as needed.

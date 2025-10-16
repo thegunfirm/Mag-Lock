@@ -1,0 +1,56 @@
+Goal: Make GET /api/products return Algolia hits only (temporary bypass), without touching any other routes.
+
+File to edit: server/routes.ts (TypeScript)
+
+Do the following steps in order:
+
+Open server/routes.ts.
+
+Find the first handler that matches:
+
+starts at a line like
+app.get('/api/products', ... or app.get("/api/products", ...
+
+and ends at its matching });
+
+Insert this new handler block immediately above that existing handler:
+
+// HARD SWITCH: /api/products -> Algolia-only (temporary; skips DB enrich)
+app.get('/api/products', async (req: any, res: any) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const limit = Number.parseInt(String(req.query.limit ?? '20'), 10) || 20;
+
+    const r = await fetch(
+      `https://${process.env.ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/products/query`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Algolia-API-Key': process.env.ALGOLIA_API_KEY!,          // SEARCH key
+          'X-Algolia-Application-Id': process.env.ALGOLIA_APP_ID!,
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ params: `query=${encodeURIComponent(q)}&hitsPerPage=${limit}` }),
+      }
+    );
+
+    const data = await r.json().catch(() => ({}));
+    if (Array.isArray(data.hits)) return res.json(data.hits); // return Algolia hits directly
+    return res.status(502).json({ message: 'Algolia query failed', detail: data });
+  } catch (err: any) {
+    return res.status(500).json({ message: 'Algolia-only fallback failed', error: String(err?.message || err) });
+  }
+});
+
+
+Comment out the original products handler you found in step 2 so it doesn’t run (do not delete it). Wrap it like this:
+
+/* === OLD PRODUCTS ROUTE (TEMP DISABLED) ===
+app.get('/api/products', ... the whole original handler body ... );
+=== END OLD PRODUCTS ROUTE === */
+
+
+Do not change any other routes (e.g., /api/products/search, /api/products/category/:category, /api/products/:id, etc.).
+
+Save the file. Ensure there are no TypeScript errors in this file.

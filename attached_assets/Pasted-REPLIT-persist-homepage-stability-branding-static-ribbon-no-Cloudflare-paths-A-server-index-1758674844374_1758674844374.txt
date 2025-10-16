@@ -1,0 +1,63 @@
+REPLIT — persist homepage stability (branding + static ribbon, no Cloudflare paths)
+
+A) server/index.ts — add a public branding endpoint (above registerRoutes(app)):
+
+// PUBLIC branding JSON (no Cloudflare Access)
+app.get('/branding.json', (_req, res) => {
+  res.json({ heroSlides: [], categoryRibbons: [], featured: [] });
+});
+
+
+B) client/src/pages/home.tsx — use public branding + add a static ribbon
+
+Replace any fetch('/api/cms/branding' (or branding-public) with:
+
+fetch('/branding.json' /* public */)
+
+
+Add this static ribbon above the search box:
+
+// --- Static Category Ribbon (no API) ---
+const STATIC_CATEGORIES: { label: string; href: string }[] = [
+  { label: 'Uppers', href: '/products?category=' + encodeURIComponent('Uppers') },
+  { label: 'Handguns', href: '/products?category=' + encodeURIComponent('Handguns') },
+  { label: 'Rifles', href: '/products?category=' + encodeURIComponent('Rifles') },
+  { label: 'Ammo', href: '/products?category=' + encodeURIComponent('Ammo') },
+  { label: 'Optics', href: '/products?category=' + encodeURIComponent('Optics') },
+  { label: 'Accessories', href: '/products?category=' + encodeURIComponent('Accessories') },
+  { label: 'NFA Products', href: '/products?category=' + encodeURIComponent('NFA Products') },
+  { label: 'Safety & Protection', href: '/products?category=' + encodeURIComponent('Safety & Protection') },
+];
+
+function StaticCategoryRibbon() {
+  return (
+    <nav data-catribbon className="w-full bg-white/60 backdrop-blur supports-[backdrop-filter]:bg-white/40">
+      <div className="mx-auto max-w-6xl px-4 py-2">
+        <ul className="flex flex-wrap items-center justify-center gap-2">
+          {STATIC_CATEGORIES.map((c) => (
+            <li key={c.label}>
+              <a
+                href={c.href}
+                className="inline-block rounded-full border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-100"
+              >
+                {c.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </nav>
+  );
+}
+// render it above the search:
+{/* <StaticCategoryRibbon /> */}
+
+
+Guard any .map usage on homepage data:
+
+const featuredSafe = Array.isArray(featured) ? featured : [];
+const slidesSafe = Array.isArray(slides) ? slides : [];
+const ribbonsSafe = Array.isArray(ribbons) ? ribbons : [];
+
+
+…and use featuredSafe/slidesSafe/ribbonsSafe in JSX.

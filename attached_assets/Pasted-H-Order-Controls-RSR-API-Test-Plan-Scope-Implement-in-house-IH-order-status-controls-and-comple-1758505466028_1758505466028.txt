@@ -1,0 +1,206 @@
+H Order Controls & RSR API Test Plan
+Scope
+
+Implement in-house (IH) order status controls and complete the “pre-RSR-API” test pass. Keep existing splitting logic and admin pages. Only add the pieces listed below.
+
+A) Data Model (persist these on the order/shipments)
+
+fulfillmentType: ih_ffl | ds_ffl | ds_customer (already present—do not break)
+
+ffl: { id, name, atfNumber, street, city, state, zip, phone, email } (persisted on the firearm shipment)
+
+ihStatus: enum for IH firearms shipments only:
+
+RECEIVED_FROM_RSR
+
+SENT_OUTBOUND
+
+ORDER_COMPLETE
+
+ihMeta:
+
+rsrReceiptDate (ISO date)
+
+internalTrackingNumber (string)
+
+outboundCarrier (UPS/FEDEX/USPS/OTHER)
+
+outboundTracking (string)
+
+notes (array of timestamped admin notes)
+
+holds (existing behavior unchanged): keep current payment/hold logic; just ensure “release” path works with the new statuses.
+
+Acceptance: These fields are returned from GET /api/orders/:id and included in GET /api/orders/:id/summary.
+
+B) Backend Endpoints (extend, don’t replace)
+
+PATCH /api/orders/:id/status
+
+Allow the three IH statuses above only when fulfillmentType === "ih_ffl".
+
+Accept optional ihMeta fields in the same payload and upsert them.
+
+Write an activity log entry for every transition (who, when, from→to, and which fields changed).
+
+Validation:
+
+RECEIVED_FROM_RSR can be set anytime after payment.
+
+SENT_OUTBOUND requires outboundCarrier + outboundTracking.
+
+ORDER_COMPLETE requires at least one of: delivery scan date in note, FFL pickup confirmation note, or carrier delivered event (if available later).
+
+POST /api/orders/:id/notes
+
+Body: { note: string }
+
+Appends to ihMeta.notes with server timestamp + admin id; also mirrors to activity log.
+
+GET /api/orders/:id/summary
+
+Include: fulfillmentType, ffl, ihStatus, ihMeta, and last 10 activity log entries.
+
+Acceptance: Status transitions enforce the guards above; invalid transitions return 422 with reason.
+
+C) Admin UI (Backoffice)
+
+Orders List
+
+Add a column “IH Status” (blank for non-IH).
+
+Add filter chips: IH: All | Received | Sent | Complete.
+
+Order Detail → IH Panel (conditional)
+
+Show this panel only when fulfillmentType === "ih_ffl".
+
+Fields (editable with Save):
+
+Dropdown “IH Status” → values: Received from RSR / Sent Outbound / Order Complete
+
+rsrReceiptDate (date picker)
+
+internalTrackingNumber (text)
+
+outboundCarrier (select)
+
+outboundTracking (text)
+
+Buttons:
+
+Save IH Details → PATCH /api/orders/:id/status with current IH status + meta
+
+Add Note → POST /api/orders/:id/notes
+
+Read-only sections:
+
+FFL Destination (name, ATF #, address)
+
+Activity Log (latest 10 entries, newest first)
+
+Acceptance: Changing the dropdown enforces required fields (e.g., can’t set “Sent Outbound” without carrier+tracking).
+
+D) Checkout → FFL Selection (Persistence Check)
+
+Ensure the chosen FFL is:
+
+Captured during checkout,
+
+Stored on the firearm shipment (order.shipments[].ffl),
+
+Displayed on Order Confirmation and in Admin → Order Detail.
+
+If user edits FFL before payment completes, update the same persisted object.
+
+Acceptance: Start a cart with a firearm, pick an FFL, complete payment—Admin detail shows the exact FFL record.
+
+E) Order Splitting (Smoke Test Only)
+
+Keep current rules:
+
+Firearms → FFL shipment(s)
+
+Non-firearm accessories → Customer shipment
+
+ih_ffl is your in-house path (non-dropship firearm).
+
+Confirm created shipments carry correct fulfillmentType.
+
+Acceptance: Mixed cart creates at least two shipments with correct types; nothing regresses.
+
+F) Held Orders — Admin Release Control (No new UI, just confirm behavior)
+
+When payment passes but order is held, admin can “Release”.
+
+Release should:
+
+Leave IH statuses untouched,
+
+Unblock subsequent IH status transitions.
+
+Acceptance: Releasing a hold moves the order into the normal IH flow; status dropdown becomes active.
+
+G) Test Plan (run these before touching the live RSR API)
+
+FFL Persistence
+
+Cart with a handgun → choose FFL → pay.
+
+Verify order.shipments[firearm].ffl populated and displayed in Admin.
+
+IH Status Flow
+
+Mark RECEIVED_FROM_RSR with rsrReceiptDate → OK.
+
+Try setting SENT_OUTBOUND without carrier/tracking → expect 422.
+
+Set SENT_OUTBOUND with carrier+tracking → OK; activity log updated.
+
+Set ORDER_COMPLETE with a note “FFL picked up” → OK; activity log updated.
+
+Non-IH Guardrail
+
+On a pure drop-ship order, the IH panel is hidden and the endpoint rejects IH statuses with 422.
+
+Notes API
+
+Add 2 notes; verify they appear in ihMeta.notes and activity log (latest first).
+
+Summary Endpoint
+
+GET /api/orders/:id/summary returns IH fields and last 10 activity entries.
+
+Held → Release
+
+Create an order in “held” state.
+
+Release it in Admin; ensure IH status dropdown becomes enabled and transitions work.
+
+H) UX Copy (use exactly)
+
+IH Status labels:
+
+“Received from RSR”
+
+“Sent Outbound”
+
+“Order Complete”
+
+IH Panel title: “In-House Firearm Fulfillment”
+
+Notes placeholder: “Add an internal note (visible to staff only)”
+
+I) Non-Goals (do NOT implement now)
+
+Live RSR API calls or webhooks
+
+Carrier tracking webhooks
+
+Any change to splitting rules, payments, or pricing
+
+Any change to non-IH flows
+
+Done When
+
+Admin can fully process an IH firearm order from “Received from RSR” → “Sent Outbound” (with carrier+tracking) → “Order Complete”, with all activity/notes persisted and reflected in the summary endpoint—no regressions to non-IH orders.

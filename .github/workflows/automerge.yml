@@ -1,0 +1,73 @@
+name: Automerge replit-dev → main (FF or merge)
+
+on:
+  push:
+    branches: [ replit-dev ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure git author
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch main & replit-dev
+        run: |
+          git fetch origin main replit-dev
+
+      - name: Attempt fast-forward main → replit-dev
+        id: try_ff
+        run: |
+          set -e
+          git checkout -B main origin/main
+          set +e
+          git merge --ff-only origin/replit-dev
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "FF_OK=1" >> "$GITHUB_ENV"
+          else
+            echo "FF_OK=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Non-FF merge commit (preserve main on conflicts)
+        if: ${{ env.FF_OK == '0' }}
+        run: |
+          set -e
+          # Prefer main's version on conflicts to avoid breaking deploy workflows
+          git merge -X ours --no-ff -m "Automerge replit-dev → main (non-FF)" origin/replit-dev
+
+      - name: Push to main (GITHUB_TOKEN)
+        id: push_main
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git push origin main
+
+      - name: Push to main (PAT fallback)
+        if: ${{ steps.push_main.outcome == 'failure' }}
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -e
+          if [ -z "${GH_PAT:-}" ]; then
+            echo "::warning::GH_PAT not set; cannot fallback-push to main."
+            exit 0
+          fi
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git"
+          git push origin main

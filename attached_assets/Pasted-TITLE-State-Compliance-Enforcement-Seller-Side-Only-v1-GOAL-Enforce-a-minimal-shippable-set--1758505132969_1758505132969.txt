@@ -1,0 +1,224 @@
+TITLE: State Compliance Enforcement (Seller-Side Only) — v1
+
+GOAL: Enforce a minimal, shippable set of state rules at Add-to-Cart and Checkout. Ignore FFL/buyer paperwork flows. California is fully blocked.
+
+0) Config & Data Requirements
+
+Config (editable without redeploy):
+
+blockedStates = ["CA"]
+
+magazineLimits = { "NY": 10, "MA": 10, "IL": 10 }
+
+blockAmmoStates = ["NY"] // until we add NY ammo background-check workflow
+
+assaultWeaponBlockedStates = ["NY","IL"]
+
+rosterStates = { "MA": "MA_HANDGUN_ROSTER" } // identifier for the roster we check against
+
+Per-SKU data fields (already in catalog or to add as derived flags):
+
+isFirearm: boolean
+
+isHandgun: boolean
+
+isSemiAuto: boolean
+
+magCapacityInt: number | null
+
+hasAssaultFeatures: boolean // based on feature mapping (e.g., folding stock, pistol grip + detachable mag, etc.)
+
+handgunRosterId: string | null // for roster validations (MA)
+
+isAmmo: boolean
+
+fflRequired: boolean // true for serialized firearms/frames/receivers
+
+Admin/Order fields (to show in backoffice):
+
+complianceFlags: string[] // e.g., ["NY_MAG_10","MA_ROSTER_FAIL"]
+
+complianceNotes: string // human-readable reason(s)
+
+shipHoldUntil: datetime | null // not used in v1 for IL wait; included for future holds
+
+1) Enforcement Points
+
+Run the same rule set at:
+
+Add-to-Cart (fast fail to avoid cart clutter)
+
+Checkout Review (final gate before payment/label flows)
+
+If a rule triggers at checkout that didn’t at add-to-cart (address change, etc.), block with a clear message and codes.
+
+2) State Router
+
+Determine ship-to state from active cart shipping address.
+
+If missing at Add-to-Cart, allow add but re-validate at Checkout once address is present.
+
+3) Rules (Seller-Side Only)
+A. Blocked States (hard block)
+
+If state in blockedStates → block checkout.
+
+User message: “We do not ship to this state at this time.”
+
+Admin code: STATE_BLOCKED_<STATE>
+
+v1: CA is blocked outright.
+
+B. Magazine Capacity (NY, MA, IL)
+
+If item.isMagazine === true && item.magCapacityInt > magazineLimits[state] → block add/checkout.
+
+User message: “This magazine exceeds the legal capacity for your state.”
+
+Admin code: <STATE>_MAG_<limit> (e.g., NY_MAG_10)
+
+C. Ammunition (NY only for now)
+
+If state in blockAmmoStates && item.isAmmo === true → block.
+
+User message: “Ammunition sales to your state are not available at this time.”
+
+Admin code: NY_AMMO_BLOCK
+
+(We’ll revisit when background-check workflow is ready.)
+
+D. “Assault-Weapon” Flagged SKUs (NY, IL)
+
+If state in assaultWeaponBlockedStates && item.hasAssaultFeatures === true → block.
+
+User message: “This item configuration is not available for shipment to your state.”
+
+Admin code: <STATE>_AW_BLOCK
+
+(We’re using a simple boolean flag per SKU. Expand feature mapping later.)
+
+E. Handgun Roster (MA)
+
+If state === "MA" && item.isHandgun === true:
+
+Require item.handgunRosterId to be non-null AND present in MA roster.
+
+If not present/approved → block.
+
+User message: “This handgun model is not on the Massachusetts approved roster.”
+
+Admin code: MA_ROSTER_FAIL
+
+F. Firearms → FFL (unchanged)
+
+If item.fflRequired === true, force FFL selection and persist through checkout. (No extra state rules here for v1.)
+
+4) Cart-Level Behavior
+
+Partial carts: If some lines pass and others fail, allow user to remove blocked items and proceed with the rest.
+
+Each blocked line shows a pill reason and a “Remove” action.
+
+5) Checkout Behavior
+
+If any line triggers a rule, prevent payment.
+
+Show a consolidated list:
+
+“These items can’t ship to {STATE}:”
+
+Per line → product name + reason
+
+Admin codes (for support visibility on the order attempt, not necessarily customer-visible)
+
+6) Backoffice/Order Visibility
+
+When a block occurs at checkout attempt, persist a lightweight “attempt log” (no order creation) with:
+
+cartId, timestamp, shipState
+
+blockedSkus: [{ sku, reasonCode, reasonText }]
+
+When an order is created (no blocks), attach:
+
+complianceFlags[] per line that required checks (e.g., FFL_REQUIRED) for transparency
+
+For v1, no IL wait holds (we’re not enforcing buyer waiting periods).
+
+7) Error/Message Copy (exact)
+
+STATE_BLOCKED_CA: “We do not ship to California at this time.”
+
+NY_MAG_10: “This magazine exceeds the legal capacity for New York (10 rounds).”
+
+MA_MAG_10: “This magazine exceeds the legal capacity for Massachusetts (10 rounds).”
+
+IL_MAG_10: “This magazine exceeds the legal capacity for Illinois (10 rounds).”
+
+NY_AMMO_BLOCK: “Ammunition sales to New York are not available at this time.”
+
+NY_AW_BLOCK: “This item configuration is not available for shipment to New York.”
+
+IL_AW_BLOCK: “This item configuration is not available for shipment to Illinois.”
+
+MA_ROSTER_FAIL: “This handgun model is not on the Massachusetts approved roster.”
+
+8) Acceptance Tests (QA without code)
+
+State blocks
+
+Set ship state = CA, cart with any item → checkout blocked, shows STATE_BLOCKED_CA.
+
+Magazine
+
+Add 15-rd mag, set ship = NY → blocked with NY_MAG_10.
+
+Repeat for MA and IL → MA_MAG_10, IL_MAG_10.
+
+Add 10-rd mag in those states → allowed.
+
+Ammo (NY)
+
+Add any ammo, ship = NY → blocked with NY_AMMO_BLOCK.
+
+Same ammo, ship = NJ/PA → allowed (unless other rules apply).
+
+Assault-feature flag
+
+Add SKU with hasAssaultFeatures=true, ship = NY → blocked NY_AW_BLOCK.
+
+Same SKU, ship = IL → blocked IL_AW_BLOCK.
+
+Same SKU, ship = AZ/TX → allowed.
+
+MA roster
+
+Add handgun with handgunRosterId=null, ship = MA → blocked MA_ROSTER_FAIL.
+
+Add handgun with approved handgunRosterId, ship = MA → allowed.
+
+Mixed cart
+
+Cart has 15-rd mag + accessory; ship = IL → mag line blocked, accessory allowed; user can remove mag and proceed.
+
+9) Rollout Order (tickets)
+
+Config surfaces (blockedStates, magazineLimits, blockAmmoStates, assaultWeaponBlockedStates, roster mapping).
+
+Add-to-Cart checker (fast fail + reason pills).
+
+Checkout validator (hard gate + consolidated reason list).
+
+Backoffice attempt log (only when checkout fails).
+
+MA roster lookup hook (read-only list/table; no UI yet).
+
+Catalog flags (hasAssaultFeatures, isAmmo, isMagazine, magCapacityInt, handgunRosterId).
+
+10) Out of Scope (v1)
+
+Buyer licensing verification (FOID/LTC/FID uploads).
+
+Waiting period timers (IL 72-hour), background-check integrations (NY ammo), model-specific AW feature parsing beyond a boolean.
+
+Anything California (we’re blocking CA entirely).
