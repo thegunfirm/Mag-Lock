@@ -2,3 +2,5 @@
 # The Gun Firm
 <!-- ci probe -->
 <!-- guard verify -->
+
+[Contact Support](mailto:support@thegunfirm.com)
